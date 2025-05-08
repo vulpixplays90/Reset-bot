@@ -1,7 +1,8 @@
 import telebot, requests, time
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+import os
 
-BOT_TOKEN = '7883613469:AAEcqu9xs69AxQwHaA1XizY0zwp9ts_JhIo'
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 REQUIRED_CHANNELS = ['@rayygrp', '@ALEXBOTPY']
 GROUP_LINK = "https://t.me/RAYYGRP"
 
