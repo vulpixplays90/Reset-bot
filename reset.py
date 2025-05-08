@@ -1,5 +1,7 @@
 import telebot, requests, time
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+from flask import Flask 
+from threading import Thread 
 import os
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -8,6 +10,19 @@ GROUP_LINK = "https://t.me/RAYYGRP"
 
 bot = telebot.TeleBot(BOT_TOKEN)
 user_reset_state = {}
+
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "I am alive"
+
+def run_http_server():
+    app.run(host='0.0.0.0', port=8080)
+
+def keep_alive():
+    t = Thread(target=run_http_server)
+    t.start()
 
 def is_user_member(user_id):
     for channel in REQUIRED_CHANNELS:
@@ -111,6 +126,9 @@ def verify_callback(c):
         bot.send_message(c.message.chat.id, f"✅ You're verified, {c.from_user.first_name}!")
     else:
         send_verification_prompt(c.message.chat.id, user_id)
+
+keep_alive()
+
 
 if __name__ == "__main__":
     print("[✓] Bot is Online — Group-only / Multi-user enabled")
