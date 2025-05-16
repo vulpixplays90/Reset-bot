@@ -212,8 +212,11 @@ def handle_commands(message):
             process_reset_request(message, ' '.join(message.text.split()[1:]))
         else:
             # Ask for input if not provided
-            user_reset_state[user_id] = message.chat.id
-            bot.reply_to(message, "📩 Please send me the username/email you want to reset:")
+            msg = bot.reply_to(message, "📩 Reply To This Message With Your username/email you want to reset:")
+            user_reset_state[user_id] = {
+     "chat_id": message.chat.id,
+     "prompt_msg_id": msg.message_id}
+
     else:
         bot.reply_to(message, "✅ You're verified! Use /resett <username/email> to start.")
 
@@ -278,9 +281,21 @@ def process_reset_request(message, input_text):
     
     user_reset_state.pop(user_id, None)
 
-@bot.message_handler(func=lambda m: m.from_user.id in user_reset_state)
+@bot.message_handler(func=lambda m: m.reply_to_message and m.from_user.id in user_reset_state)
 def handle_reset_input(m):
-    if not is_user_joined(m.from_user.id):
+    user_id = m.from_user.id
+    reset_info = user_reset_state.get(user_id)
+
+    # Only allow if user replied to the bot's prompt
+    if (
+        not reset_info or 
+        m.chat.id != reset_info["chat_id"] or 
+        m.reply_to_message.message_id != reset_info["prompt_msg_id"] or 
+        m.reply_to_message.from_user.id != bot.get_me().id  # ensure reply is to the bot
+    ):
+        return
+
+    if not is_user_joined(user_id):
         buttons = InlineKeyboardMarkup()
         for channel in FORCE_CHANNELS:
             buttons.add(InlineKeyboardButton(f"📢 Join @{channel}", url=f"https://t.me/{channel}"))
@@ -292,9 +307,8 @@ def handle_reset_input(m):
         )
         return
 
-    if m.chat.id != user_reset_state[m.from_user.id]:
-        return
     process_reset_request(m, m.text.strip())
+
 
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("verify_"))
