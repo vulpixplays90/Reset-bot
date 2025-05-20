@@ -11,7 +11,7 @@ BOT_TOKEN = "7915253544:AAHR6QqNFjShqr5cfLDQvBRkF5oAnNa0n8U"
 FORCE_CHANNELS = ["join_hyponet", "codexverse"]  # Channel usernames without @
 
 
-GROUP_LINK = 'https://t.me/hyporeset'
+GROUP_LINK = 'https://t.me/hyporesetgc'
 BOT_LINK = "https://t.me/insta_reset_robot"  # Replace with your bot's link
 
 ADMIN_ID = 6897739611  # your Telegram user ID
@@ -138,6 +138,22 @@ def list_users(message):
         text += f"- {u['name']} (`{u['_id']}`)\n"
     bot.send_message(message.chat.id, text, parse_mode="Markdown")
 
+@bot.my_chat_member_handler()
+def handle_bot_added_or_removed(event):
+    chat = event.chat
+    status = event.new_chat_member.status
+
+    if status in ["member", "administrator"]:
+        # Save channel/group ID
+        if not users_col.find_one({"_id": chat.id}):
+            users_col.insert_one({"_id": chat.id, "name": chat.title})
+            print(f"[+] Bot added to: {chat.title} ({chat.id})")
+    elif status in ["left", "kicked"]:
+        # Optionally remove if bot was removed
+        users_col.delete_one({"_id": chat.id})
+        print(f"[-] Bot removed from: {chat.title} ({chat.id})")
+
+
 
 @bot.message_handler(commands=['broadcast'])
 def broadcast(message):
@@ -148,27 +164,31 @@ def broadcast(message):
         bot.reply_to(message, "✏️ Please reply to the message you want to broadcast.")
         return
 
-    users = users_col.find()
+    targets = users_col.find()
     sent = 0
-    for user in users:
+    failed = 0
+
+    for target in targets:
         try:
-            bot.copy_message(chat_id=user['_id'],
-                             from_chat_id=message.chat.id,
-                             message_id=message.reply_to_message.message_id)
+            bot.copy_message(
+                chat_id=target['_id'],
+                from_chat_id=message.chat.id,
+                message_id=message.reply_to_message.message_id
+            )
             sent += 1
         except Exception as e:
-            print(f"Failed to send to {user['_id']}: {e}")
-            continue
+            print(f"[x] Failed to send to {target['_id']}: {e}")
+            failed += 1
 
-    bot.send_message(message.chat.id, f"✅ Broadcast sent to {sent} users.")
+    bot.send_message(
+        message.chat.id,
+        f"✅ Broadcast Summary:\n\n"
+        f"📤 Sent: {sent}\n"
+        f"❌ Failed: {failed}\n"
+        f"📦 Total Targets: {sent + failed}"
+    )
 
-@bot.message_handler(commands=['resetcount'])
-def reset_count(message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    data = stats_col.find_one({"_id": "reset_counter"})
-    count = data["count"] if data else 0
-    bot.send_message(message.chat.id, f"✅ Total successful reset links sent: *{count}*", parse_mode='Markdown')
+
 
 
 
@@ -176,23 +196,44 @@ def reset_count(message):
 @check_membership
 def handle_commands(message):
     user_id = message.from_user.id
+    chat_id = message.chat.id
+    chat_type = message.chat.type
+    chat_title = message.chat.title if message.chat.title else message.from_user.first_name
     name = message.from_user.first_name
-    first_name = message.from_user.first_name
 
+    # 1. Save group/channel ID for broadcast
+    if chat_type in ["group", "supergroup", "channel"]:
+        if not users_col.find_one({"_id": chat_id}):
+            users_col.insert_one({"_id": chat_id, "name": chat_title})
+
+    # 2. Check if user is registered (for group use)
     if not users_col.find_one({"_id": user_id}):
-                users_col.insert_one({"_id": user_id, "name": first_name})
+        if chat_type != "private":
+            # Ask to start the bot in private
+            btn = InlineKeyboardMarkup()
+            btn.add(InlineKeyboardButton("👉 Start Bot in Private", url=f"https://t.me/{bot.get_me().username}?start=start"))
 
-    if message.chat.type == "private":
+            bot.reply_to(
+                message,
+                "❌ You must start the bot in private chat before using it in groups.\n\nClick the button below to get started.",
+                reply_markup=btn
+            )
+            return
+        else:
+            users_col.insert_one({"_id": user_id, "name": name})
+
+    # 3. Private Chat: Show intro & prompt to add to group
+    if chat_type == "private":
         markup = InlineKeyboardMarkup()
         markup.row(
-            InlineKeyboardButton(" ⛔️ resetGc", url=GROUP_LINK),
+            InlineKeyboardButton("⛔️ resetGc", url=GROUP_LINK),
             InlineKeyboardButton("👨‍💻 Developer", url=f"https://t.me/{deveop}")
         )
         markup.add(
             InlineKeyboardButton("[+] Add Me to Group", url=f"https://t.me/{bot.get_me().username}?startgroup=true")
         )
         bot.send_message(
-            message.chat.id,
+            chat_id,
             f'❇️ Heyy {name}\n🆔id={user_id}\n\n'
             "🚫 This bot works only in groups!\n\n"
             "👉 Add me to your group to use the reset feature.\n"
@@ -201,24 +242,23 @@ def handle_commands(message):
         )
         return
 
-
-
-
-    # Handle both /reset and /reset <input>
+    # 4. Group Chat: Handle /resett logic
     if message.text.startswith('/resett'):
-        # Check if input is provided with command
         if len(message.text.split()) > 1:
-            # Process immediately if input is provided
             process_reset_request(message, ' '.join(message.text.split()[1:]))
         else:
-            # Ask for input if not provided
             msg = bot.reply_to(message, "📩 Reply To This Message With Your username/email you want to reset:")
             user_reset_state[user_id] = {
-     "chat_id": message.chat.id,
-     "prompt_msg_id": msg.message_id}
+                "chat_id": chat_id,
+                "prompt_msg_id": msg.message_id
+            }
 
-    else:
-        bot.reply_to(message, "✅ You're verified! Use /resett <username/email> to start.")
+
+
+
+
+
+
 
 def process_reset_request(message, input_text):
     user_id = message.from_user.id
