@@ -23,7 +23,7 @@ client = MongoClient(MONGO_URI)
 db = client["reset_bot"]
 users_col = db["users"]
 stats_col = db["stats"]
-
+sticker_col = db["sticker"]
 
 
 
@@ -132,11 +132,33 @@ def send_verification_prompt(message):
 def list_users(message):
     if message.from_user.id != ADMIN_ID:
         return
+
     users = users_col.find()
-    text = "👥 Registered Users:\n\n"
+    text = "👥 <b>Registered Users:</b>\n\n"
     for u in users:
-        text += f"- {u['name']} (`{u['_id']}`)\n"
-    bot.send_message(message.chat.id, text, parse_mode="Markdown")
+        safe_name = (u.get("name") or "Unknown").replace("<", "&lt;").replace(">", "&gt;")
+        text += f"- {safe_name} (<code>{u['_id']}</code>)\n"
+
+    bot.send_message(message.chat.id, text, parse_mode="HTML")
+
+@bot.message_handler(commands=['stats'])
+def show_stats(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    total_users = users_col.count_documents({})
+    reset_stats = stats_col.find_one({"_id": "reset_counter"})
+    reset_count = reset_stats.get("count", 0) if reset_stats else 0
+
+    text = (
+        "<b>📊 Bot Stats:</b>\n\n"
+        f"👥 Total Users/Groups: <b>{total_users}</b>\n"
+        f"🔁 Total Resets Done: <b>{reset_count}</b>\n"
+    )
+
+    bot.send_message(message.chat.id, text, parse_mode="HTML")
+
+
 
 @bot.my_chat_member_handler()
 def handle_bot_added_or_removed(event):
@@ -189,6 +211,29 @@ def broadcast(message):
     )
 
 
+@bot.message_handler(commands=["setsticker"])
+def set_sticker(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    if not message.reply_to_message or not message.reply_to_message.sticker:
+        return bot.reply_to(message, "❌ Please reply to a sticker to save it.")
+
+    file_id = message.reply_to_message.sticker.file_id
+    sticker_col.update_one({"_id": "default"}, {"$set": {"file_id": file_id}}, upsert=True)
+    bot.reply_to(message, "✅ Sticker has been saved.")
+
+
+@bot.message_handler(commands=["removesticker"])
+def remove_sticker(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    result = sticker_col.delete_one({"_id": "default"})
+    if result.deleted_count:
+        bot.reply_to(message, "🗑️ Sticker has been removed.")
+    else:
+        bot.reply_to(message, "⚠️ No sticker was set.")
 
 
 
@@ -200,6 +245,16 @@ def handle_commands(message):
     chat_type = message.chat.type
     chat_title = message.chat.title if message.chat.title else message.from_user.first_name
     name = message.from_user.first_name
+
+    # Send and delete sticker if set
+    sticker_doc = sticker_col.find_one({"_id": "default"})
+    if sticker_doc:
+        try:
+            sent_sticker = bot.send_sticker(chat_id, sticker_doc["file_id"])
+            time.sleep(0.5)
+            bot.delete_message(chat_id, sent_sticker.message_id)
+        except Exception as e:
+            print(f"[!] Failed to send/delete sticker: {e}")
 
     # 1. Save group/channel ID for broadcast
     if chat_type in ["group", "supergroup", "channel"]:
