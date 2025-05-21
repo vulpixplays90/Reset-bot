@@ -246,15 +246,16 @@ def handle_commands(message):
     chat_title = message.chat.title if message.chat.title else message.from_user.first_name
     name = message.from_user.first_name
 
-    # Send and delete sticker if set
-    sticker_doc = sticker_col.find_one({"_id": "default"})
-    if sticker_doc:
-        try:
-            sent_sticker = bot.send_sticker(chat_id, sticker_doc["file_id"])
-            time.sleep(0.5)
-            bot.delete_message(chat_id, sent_sticker.message_id)
-        except Exception as e:
-            print(f"[!] Failed to send/delete sticker: {e}")
+    if message.text.strip() == "/start":
+        sticker_doc = sticker_col.find_one({"_id": "default"})
+        if sticker_doc:
+            try:
+                sent_sticker = bot.send_sticker(chat_id, sticker_doc["file_id"])
+                time.sleep(0.9)
+                bot.delete_message(chat_id, sent_sticker.message_id)
+            except Exception as e:
+                print(f"[!] Failed to send/delete sticker: {e}")
+
 
     # 1. Save group/channel ID for broadcast
     if chat_type in ["group", "supergroup", "channel"]:
