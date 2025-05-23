@@ -6,7 +6,7 @@ import os
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
 
 
-BOT_TOKEN = "7915253544:AAF6Ib4zGTt2TXWaYS4HPKffMw8kDKjHjXY"
+BOT_TOKEN = "7915253544:AAH_r1xAV4TdVfpFDyqfqgX0KEQPL5B1Lbw"
 
 FORCE_CHANNELS = ["join_hyponet", "codexverse"]  # Channel usernames without @
 
