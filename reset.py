@@ -5,8 +5,19 @@ from threading import Thread
 import os
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
 
+from collections import defaultdict
 
-BOT_TOKEN = "7915253544:AAH_r1xAV4TdVfpFDyqfqgX0KEQPL5B1Lbw"
+pending_batches = defaultdict(list)
+
+from collections import defaultdict, deque
+
+pending_batches = defaultdict(list)
+batch_queue = deque()
+current_batch_user = None
+
+
+
+BOT_TOKEN = "7915253544:AAGkeU-pc7SSUIuq7xaz6MqjGMJJ6cfJDlo"
 
 FORCE_CHANNELS = ["join_hyponet", "codexverse"]  # Channel usernames without @
 
@@ -316,10 +327,12 @@ def handle_commands(message):
 
 
 
+import telebot.apihelper
+
 def process_reset_request(message, input_text):
     user_id = message.from_user.id
     start_time = time.time()
-    
+
     try:
         res = requests.post(
             'https://i.instagram.com/api/v1/accounts/send_password_reset/',
@@ -333,10 +346,10 @@ def process_reset_request(message, input_text):
         speed = round(time.time() - start_time, 2)
         status = res.get("status", "fail")
         obfuscated = res.get("obfuscated_email", input_text)
+
         x = bot.send_message(message.chat.id, f"⚡️ sending reset to {input_text}", reply_to_message_id=message.message_id)
 
         if status != 'ok':
-            # If the status is not 'ok', get the error message (if available)
             error_message = res.get('message', 'Unknown error')
             msg = (
                 f"━━━━━━━━━━━━━━━━━━\n"
@@ -349,7 +362,6 @@ def process_reset_request(message, input_text):
                 f"💎 Bot by @BotPlays90"
             )
         else:
-            # Count successful reset
             stats_col.update_one({"_id": "reset_counter"}, {"$inc": {"count": 1}}, upsert=True)
             msg = (
                 f"━━━━━━━━━━━━━━━━━━\n"
@@ -361,20 +373,27 @@ def process_reset_request(message, input_text):
                 f"💎 Bot by @BotPlays90"
             )
 
+        bot.send_message(message.chat.id, msg, reply_to_message_id=message.message_id)
+        bot.delete_message(chat_id=message.chat.id, message_id=x.message_id)
+
+    except telebot.apihelper.ApiTelegramException as e:
+        if "Too Many Requests" in str(e):
+            retry_seconds = int(str(e).split("retry after")[1].split()[0])
+            bot.send_message(message.chat.id, f"🚫 Rate limit hit. Retrying in {retry_seconds} seconds...")
+            time.sleep(retry_seconds + 1)
+            process_reset_request(message, input_text)  # Retry
+            return
+        else:
+            bot.send_message(message.chat.id, f"❌ Telegram API error:\n{e}")
+
     except Exception as e:
         speed = round(time.time() - start_time, 2)
-        msg = (
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"❌ Error processing request\n"
-            f"🔹 Attempted: {input_text}\n"
-            f"⚡ Speed: {speed} seconds\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"💎 Bot by @BotPlays90"
+        bot.send_message(
+            message.chat.id,
+            f"❌ Error processing `{input_text}`\n⚡ Speed: {speed}s\nError: {e}",
+            parse_mode="Markdown"
         )
 
-    bot.send_message(message.chat.id, msg, reply_to_message_id=message.message_id)
-    bot.delete_message(chat_id=message.chat.id, message_id=x.message_id)
-    
     user_reset_state.pop(user_id, None)
 
 @bot.message_handler(func=lambda m: m.reply_to_message and m.from_user.id in user_reset_state)
@@ -382,12 +401,11 @@ def handle_reset_input(m):
     user_id = m.from_user.id
     reset_info = user_reset_state.get(user_id)
 
-    # Only allow if user replied to the bot's prompt
     if (
         not reset_info or 
         m.chat.id != reset_info["chat_id"] or 
         m.reply_to_message.message_id != reset_info["prompt_msg_id"] or 
-        m.reply_to_message.from_user.id != bot.get_me().id  # ensure reply is to the bot
+        m.reply_to_message.from_user.id != bot.get_me().id
     ):
         return
 
@@ -403,7 +421,93 @@ def handle_reset_input(m):
         )
         return
 
-    process_reset_request(m, m.text.strip())
+    # Parse input
+    raw_text = m.text.strip()
+    inputs = [x.strip() for x in raw_text.replace(",", "\n").split("\n") if x.strip()]
+    if not inputs:
+        return bot.reply_to(m, "❌ Please provide at least one valid username/email.")
+
+    # Save inputs
+    pending_batches[user_id] = inputs
+
+    global current_batch_user
+    if current_batch_user is None:
+        current_batch_user = user_id
+        send_next_batch(m.chat.id, user_id, m.message_id)
+    elif user_id == current_batch_user:
+        send_next_batch(m.chat.id, user_id, m.message_id)
+    else:
+        # Add to queue
+        if user_id not in batch_queue:
+            batch_queue.append((user_id, m.chat.id, m.message_id))
+            bot.send_message(m.chat.id, "⏳ Please wait, your batch is in queue...")
+
+
+def send_next_batch(chat_id, user_id, reply_to_msg_id):
+    global current_batch_user
+
+    inputs = pending_batches.get(user_id, [])
+    if not inputs:
+        bot.send_message(chat_id, "✅ All resets completed.", reply_to_message_id=reply_to_msg_id)
+        current_batch_user = None
+        start_next_queued_batch()
+        return
+
+    batch = inputs[:10]
+    pending_batches[user_id] = inputs[10:]
+
+    for input_text in batch:
+        try:
+            dummy_msg = type('', (), {})()
+            dummy_msg.chat = type('', (), {'id': chat_id})
+            dummy_msg.from_user = type('', (), {'id': user_id, 'first_name': 'User'})
+            dummy_msg.text = f"/resett {input_text}"
+            dummy_msg.message_id = reply_to_msg_id
+
+            process_reset_request(dummy_msg, input_text)
+            time.sleep(2)  # safe delay
+        except Exception as e:
+            bot.send_message(chat_id, f"❌ Error on: {input_text}\n{e}")
+
+    if pending_batches[user_id]:
+        btn = InlineKeyboardMarkup()
+        btn.add(InlineKeyboardButton("▶ Send Next 10", callback_data=f"nextbatch_{user_id}"))
+        bot.send_message(chat_id, "📩 10 resets processed. Click below to continue after 15s.", reply_markup=btn)
+    else:
+        bot.send_message(chat_id, "✅ All resets processed.")
+        pending_batches.pop(user_id, None)
+        current_batch_user = None
+        start_next_queued_batch()
+
+
+def start_next_queued_batch():
+    global current_batch_user
+    if batch_queue:
+        next_user_id, chat_id, reply_to_msg_id = batch_queue.popleft()
+        current_batch_user = next_user_id
+        send_next_batch(chat_id, next_user_id, reply_to_msg_id)
+
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("nextbatch_"))
+def handle_next_batch_callback(c):
+    target_user_id = int(c.data.split("_")[1])
+    if c.from_user.id != target_user_id:
+        return bot.answer_callback_query(c.id, "❌ This isn't your session.")
+
+    bot.answer_callback_query(c.id, "⏳ Waiting 15 seconds...")
+    time.sleep(15)
+    send_next_batch(c.message.chat.id, c.from_user.id, c.message.message_id)
+
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("nextbatch_"))
+def handle_next_batch_callback(c):
+    target_user_id = int(c.data.split("_")[1])
+    if c.from_user.id != target_user_id:
+        return bot.answer_callback_query(c.id, "❌ This isn't your session.")
+
+    bot.answer_callback_query(c.id, "⏳ Please wait 15 seconds...")
+    time.sleep(15)
+    send_next_batch(c.message.chat.id, c.from_user.id, c.message.message_id)
 
 
 
