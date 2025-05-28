@@ -570,6 +570,21 @@ def verify_callback(c):
         # Send verification prompt again using updated function
         send_verification_prompt(c.message)
 
+def stop_all_batches():
+    settings_col.delete_one({"_id": "current_user"})
+    queue_col.delete_many({})
+    pending_col.delete_many({})
+
+@bot.message_handler(commands=["stopall"])
+def stop_all_command(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    stop_all_batches()
+
+    bot.send_message(message.chat.id, "🛑 All batches and queues have been cleared.")
+
+
 
 keep_alive()
 
