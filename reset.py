@@ -17,7 +17,7 @@ current_batch_user = None
 
 
 
-BOT_TOKEN = "7915253544:AAGkeU-pc7SSUIuq7xaz6MqjGMJJ6cfJDlo"
+BOT_TOKEN = "7915253544:AAGwNkzHzezVltMC6SyEEQsIaYMH0LHMf0c"
 
 FORCE_CHANNELS = ["join_hyponet", "codexverse"]  # Channel usernames without @
 
@@ -35,6 +35,10 @@ db = client["reset_bot"]
 users_col = db["users"]
 stats_col = db["stats"]
 sticker_col = db["sticker"]
+pending_col = db["pending_batches"]
+queue_col = db["batch_queue"]
+settings_col = db["settings"]
+
 
 
 
@@ -322,6 +326,33 @@ def handle_commands(message):
 
 
 
+def get_pending(user_id):
+    doc = pending_col.find_one({"_id": user_id})
+    return doc["inputs"] if doc else []
+
+def set_pending(user_id, inputs):
+    pending_col.update_one({"_id": user_id}, {"$set": {"inputs": inputs}}, upsert=True)
+
+def remove_pending(user_id):
+    pending_col.delete_one({"_id": user_id})
+
+def enqueue_batch(user_id, chat_id, msg_id):
+    if not queue_col.find_one({"user_id": user_id}):
+        queue_col.insert_one({"user_id": user_id, "chat_id": chat_id, "msg_id": msg_id})
+
+def dequeue_batch():
+    doc = queue_col.find_one_and_delete({})
+    return (doc["user_id"], doc["chat_id"], doc["msg_id"]) if doc else None
+
+def get_current_user():
+    doc = settings_col.find_one({"_id": "current_user"})
+    return doc["user_id"] if doc else None
+
+def set_current_user(user_id):
+    settings_col.update_one({"_id": "current_user"}, {"$set": {"user_id": user_id}}, upsert=True)
+
+def clear_current_user():
+    settings_col.delete_one({"_id": "current_user"})
 
 
 
@@ -401,12 +432,7 @@ def handle_reset_input(m):
     user_id = m.from_user.id
     reset_info = user_reset_state.get(user_id)
 
-    if (
-        not reset_info or 
-        m.chat.id != reset_info["chat_id"] or 
-        m.reply_to_message.message_id != reset_info["prompt_msg_id"] or 
-        m.reply_to_message.from_user.id != bot.get_me().id
-    ):
+    if not reset_info or m.chat.id != reset_info["chat_id"] or m.reply_to_message.message_id != reset_info["prompt_msg_id"]:
         return
 
     if not is_user_joined(user_id):
@@ -421,40 +447,32 @@ def handle_reset_input(m):
         )
         return
 
-    # Parse input
-    raw_text = m.text.strip()
-    inputs = [x.strip() for x in raw_text.replace(",", "\n").split("\n") if x.strip()]
+    inputs = [x.strip() for x in m.text.replace(",", "\n").split("\n") if x.strip()]
     if not inputs:
         return bot.reply_to(m, "❌ Please provide at least one valid username/email.")
 
-    # Save inputs
-    pending_batches[user_id] = inputs
+    set_pending(user_id, inputs)
 
-    global current_batch_user
-    if current_batch_user is None:
-        current_batch_user = user_id
-        send_next_batch(m.chat.id, user_id, m.message_id)
-    elif user_id == current_batch_user:
-        send_next_batch(m.chat.id, user_id, m.message_id)
+    if not get_current_user():
+        set_current_user(user_id)
+        send_next_batch(m.chat.id, user_id, m.reply_to_message.message_id)
     else:
-        # Add to queue
-        if user_id not in batch_queue:
-            batch_queue.append((user_id, m.chat.id, m.message_id))
-            bot.send_message(m.chat.id, "⏳ Please wait, your batch is in queue...")
+        enqueue_batch(user_id, m.chat.id, m.reply_to_message.message_id)
+        bot.send_message(m.chat.id, "⏳ Please wait, your batch is in queue...")
+
 
 
 def send_next_batch(chat_id, user_id, reply_to_msg_id):
-    global current_batch_user
-
-    inputs = pending_batches.get(user_id, [])
+    inputs = get_pending(user_id)
     if not inputs:
         bot.send_message(chat_id, "✅ All resets completed.", reply_to_message_id=reply_to_msg_id)
-        current_batch_user = None
+        remove_pending(user_id)
+        clear_current_user()
         start_next_queued_batch()
         return
 
     batch = inputs[:10]
-    pending_batches[user_id] = inputs[10:]
+    set_pending(user_id, inputs[10:])
 
     for input_text in batch:
         try:
@@ -463,29 +481,29 @@ def send_next_batch(chat_id, user_id, reply_to_msg_id):
             dummy_msg.from_user = type('', (), {'id': user_id, 'first_name': 'User'})
             dummy_msg.text = f"/resett {input_text}"
             dummy_msg.message_id = reply_to_msg_id
-
             process_reset_request(dummy_msg, input_text)
-            time.sleep(2)  # safe delay
+            time.sleep(2)
         except Exception as e:
             bot.send_message(chat_id, f"❌ Error on: {input_text}\n{e}")
 
-    if pending_batches[user_id]:
+    if get_pending(user_id):
         btn = InlineKeyboardMarkup()
         btn.add(InlineKeyboardButton("▶ Send Next 10", callback_data=f"nextbatch_{user_id}"))
         bot.send_message(chat_id, "📩 10 resets processed. Click below to continue after 15s.", reply_markup=btn)
     else:
         bot.send_message(chat_id, "✅ All resets processed.")
-        pending_batches.pop(user_id, None)
-        current_batch_user = None
+        remove_pending(user_id)
+        clear_current_user()
         start_next_queued_batch()
 
 
 def start_next_queued_batch():
-    global current_batch_user
-    if batch_queue:
-        next_user_id, chat_id, reply_to_msg_id = batch_queue.popleft()
-        current_batch_user = next_user_id
-        send_next_batch(chat_id, next_user_id, reply_to_msg_id)
+    next_user = dequeue_batch()
+    if next_user:
+        user_id, chat_id, msg_id = next_user
+        set_current_user(user_id)
+        send_next_batch(chat_id, user_id, msg_id)
+
 
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("nextbatch_"))
@@ -493,10 +511,11 @@ def handle_next_batch_callback(c):
     target_user_id = int(c.data.split("_")[1])
     if c.from_user.id != target_user_id:
         return bot.answer_callback_query(c.id, "❌ This isn't your session.")
-
-    bot.answer_callback_query(c.id, "⏳ Waiting 15 seconds...")
+    
+    bot.answer_callback_query(c.id, "⏳ Please wait 15 seconds...")
     time.sleep(15)
     send_next_batch(c.message.chat.id, c.from_user.id, c.message.message_id)
+
 
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("nextbatch_"))
