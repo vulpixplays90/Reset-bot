@@ -19,7 +19,7 @@ current_batch_user = None
 
 BOT_TOKEN = "7915253544:AAGwNkzHzezVltMC6SyEEQsIaYMH0LHMf0c"
 
-FORCE_CHANNELS = ["join_hyponet", "codexverse"]  # Channel usernames without @
+FORCE_CHANNELS = ["hyponet_remastered", "codexverse"]  # Channel usernames without @
 
 
 GROUP_LINK = 'https://t.me/hyporesetgc'
