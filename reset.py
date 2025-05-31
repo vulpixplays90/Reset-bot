@@ -19,7 +19,7 @@ current_batch_user = None
 
 BOT_TOKEN = "7915253544:AAGwNkzHzezVltMC6SyEEQsIaYMH0LHMf0c"
 
-FORCE_CHANNELS = ["hyponet_remastered", "codexverse"]  # Channel usernames without @
+FORCE_CHANNELS = ["-1002658036915"] 
 
 
 GROUP_LINK = 'https://t.me/hyporesetgc'
@@ -62,21 +62,22 @@ def keep_alive():
 
 
 def is_user_joined(user_id):
-    for channel in FORCE_CHANNELS:
+    for channel_id in FORCE_CHANNELS:
         try:
-            member = bot.get_chat_member(f"@{channel}", user_id)
+            member = bot.get_chat_member(channel_id, user_id)
             if member.status not in ["member", "administrator", "creator"]:
                 return False
         except:
             return False
     return True
 
+
 def check_membership(func):
     def wrapper(message: Message, *args, **kwargs):
         if not is_user_joined(message.from_user.id):
             buttons = InlineKeyboardMarkup()
             for channel in FORCE_CHANNELS:
-                buttons.add(InlineKeyboardButton(f"📢 Join @{channel}", url=f"https://t.me/{channel}"))
+                buttons.add(InlineKeyboardButton("📢 Join Channel", url="https://t.me/+haA_76jVxq5mNGQ1"))
             buttons.add(InlineKeyboardButton("✅ I’ve Joined", callback_data="check_joined"))
             bot.send_message(
                 message.chat.id,
@@ -91,8 +92,8 @@ def check_membership(func):
 def verify_channel_join(call):
     user_id = call.from_user.id
     if is_user_joined(user_id):
-        bot.answer_callback_query(call.id, "✅ You're verified!")
-        bot.send_message(user_id, "Thanks for joining! You can now use the bot.\n\nType /start to begin.")
+        bot.answer_callback_query(call.id, "✅ You're verified! You can now use the bot.", show_alert=True)
+
     else:
         bot.answer_callback_query(call.id, "❌ You're still not a member of all channels!", show_alert=True)
 
