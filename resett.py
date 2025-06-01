@@ -81,6 +81,7 @@ async def handle_start_private(client, message: Message):
     )
 
 @app.on_message(filters.command("resett") & filters.group)
+@check_membership
 async def handle_reset_group(client, message: Message):
     user_id = message.from_user.id
     chat_id = message.chat.id
