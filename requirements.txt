@@ -3,3 +3,5 @@ requests
 flask
 pymongo 
 httpx
+pyrogram
+tgcrypto 
