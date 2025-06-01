@@ -7,11 +7,15 @@ from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
 from pyrogram.errors import FloodWait, RPCError
 from pymongo import MongoClient
 from collections import defaultdict
+from pyrogram.enums import ParseMode
+from force_join import check_membership
+from server import keep_alive
+
 
 # Configuration
 API_ID = 26222466
 API_HASH = "9f70e2ce80e3676b56265d4510561aef"
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = "7915253544:AAGwNkzHzezVltMC6SyEEQsIaYMH0LHMf0c"
 GROUP_LINK = 'https://t.me/hyporesetgc'
 DEVELOPER = 'botplays90'
 ADMIN_ID = 6897739611
@@ -41,6 +45,7 @@ user_reset_state = {}
 pending_verification = {}
 
 @app.on_message(filters.command(["start", "resett"]) & filters.private)
+@check_membership
 async def handle_start_private(client, message: Message):
     user_id = message.from_user.id
     name = message.from_user.first_name
@@ -76,6 +81,7 @@ async def handle_start_private(client, message: Message):
     )
 
 @app.on_message(filters.command("resett") & filters.group)
+@check_membership
 async def handle_reset_group(client, message: Message):
     user_id = message.from_user.id
     chat_id = message.chat.id
@@ -185,6 +191,16 @@ async def process_reset_request(client, message: Message, input_text: str, semap
     else:
         await handle_reset_logic(client, message, input_text, start_time)
 
+async def handle_request_error(client, message, input_text, error, start_time):
+    await message.reply_text(f"⚠️ Request error for {input_text}:\n{error}")
+
+async def handle_rpc_error(client, message, input_text, error, start_time):
+    await message.reply_text(f"⚠️ Telegram RPC error for {input_text}:\n{error}")
+
+async def handle_generic_error(client, message, input_text, error, start_time):
+    await message.reply_text(f"⚠️ Unexpected error for {input_text}:\n{error}")
+
+
 
 async def handle_reset_logic(client, message: Message, input_text: str, start_time):
     chat_id = message.chat.id
@@ -280,7 +296,7 @@ async def show_stats(client, message: Message):
         f"🔁 Total Resets Done: <b>{reset_count}</b>\n"
     )
     
-    await message.reply_text(text, parse_mode="HTML")
+    await message.reply_text(text, parse_mode=ParseMode.HTML)
 
 @app.on_message(filters.command("broadcast") & filters.user(ADMIN_ID) & filters.reply)
 async def broadcast(client, message: Message):
@@ -345,6 +361,8 @@ async def handle_chat_member_update(client, update):
         # Bot removed from group
         users_col.delete_one({"_id": update.chat.id})
         print(f"Bot removed from: {update.chat.title} ({update.chat.id})")
+
+keep_alive()
 
 if __name__ == "__main__":
     print("[✓] Bot is Online — Optimized for speed")
