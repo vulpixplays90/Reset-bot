@@ -15,7 +15,7 @@ from server import keep_alive
 # Configuration
 API_ID = 26222466
 API_HASH = "9f70e2ce80e3676b56265d4510561aef"
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = "7947805886:AAG6oP1MTnf4W2MV3C5Q3-N86irQZC5Ixhs"
 GROUP_LINK = 'https://t.me/hyporesetgc'
 DEVELOPER = 'botplays90'
 ADMIN_ID = 6897739611
@@ -80,19 +80,28 @@ async def handle_start_private(client, message: Message):
         reply_markup=markup
     )
 
-@app.on_message(filters.command("resett") & filters.group)
+@app.on_message(filters.group & filters.text & filters.regex(r"^/resett(@\w+)?(\s+.*)?$"))
 @check_membership
 async def handle_reset_group(client, message: Message):
+    text = message.text.strip()
+
+    # Block wrong bot mention
+    if "/resett@" in text and "@insta_reset_robot" not in text.lower():
+        await message.reply_text(
+            "❌ Please use the correct bot command: /resett or /resett@insta_reset_robot"
+        )
+        return
+
     user_id = message.from_user.id
     chat_id = message.chat.id
-    
+
     # Register group
     if not users_col.find_one({"_id": chat_id}):
         users_col.insert_one({
             "_id": chat_id, 
             "name": message.chat.title
         })
-    
+
     # Check if user is registered
     if not users_col.find_one({"_id": user_id}):
         markup = InlineKeyboardMarkup([[
@@ -107,8 +116,8 @@ async def handle_reset_group(client, message: Message):
             reply_markup=markup
         )
         return
-    
-    # Process reset command
+
+    # If command has input
     if len(message.command) > 1:
         input_text = ' '.join(message.command[1:])
         await process_reset_request(client, message, input_text)
