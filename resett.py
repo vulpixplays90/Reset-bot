@@ -15,7 +15,7 @@ from server import keep_alive
 # Configuration
 API_ID = 26222466
 API_HASH = "9f70e2ce80e3676b56265d4510561aef"
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = "7947805886:AAG6oP1MTnf4W2MV3C5Q3-N86irQZC5Ixhs"
 GROUP_LINK = 'https://t.me/hyporesetgc'
 DEVELOPER = 'botplays90'
 ADMIN_ID = 6897739611
@@ -29,6 +29,8 @@ db = mongo_client["reset_bot"]
 users_col = db["users"]
 stats_col = db["stats"]
 sticker_col = db["sticker"]
+weekly_stats_col = db["weekly_stats"]
+
 
 # Pyrogram client
 app = Client(
@@ -264,6 +266,25 @@ async def handle_reset_logic(client, message: Message, input_text: str, start_ti
                 f"━━━━━━━━━━━━━━━━━━\n"
                 f"💎 Bot by @BotPlays90"
             )
+                # ✅ Log successful reset in leaderboard collection
+            db["leaderboard"].update_one(
+            {"_id": user.id},
+            {
+            "$inc": {"count": 1},
+            "$set": {
+            "name": user.first_name,
+            "last_reset": time.time()
+            }
+        },
+        upsert=True
+        )
+            weekly_stats_col.update_one(
+            {"_id": "week_counter"},
+            {"$inc": {"count": 1}},
+            upsert=True
+        )
+            
+            
 
         await client.delete_messages(chat_id, temp_msg.id)
         await client.send_message(
@@ -370,6 +391,83 @@ async def handle_chat_member_update(client, update):
         # Bot removed from group
         users_col.delete_one({"_id": update.chat.id})
         print(f"Bot removed from: {update.chat.title} ({update.chat.id})")
+
+@app.on_message(filters.command("leaderboard"))
+async def leaderboard(client, message: Message):
+    leaderboard_col = db["leaderboard"]
+    top_users = leaderboard_col.find().sort(
+        [("count", -1), ("last_reset", -1)]
+    ).limit(10)
+
+    text = "🏆 <b>Top 10 Resetters:</b>\n\n"
+    rank = 1
+    for user in top_users:
+        name = user.get("name", "Unknown").replace("<", "&lt;").replace(">", "&gt;")
+        count = user.get("count", 0)
+        text += f"{rank}. {name} — <b>{count}</b> resets\n"
+        rank += 1
+
+    if rank == 1:
+        text = "❌ No resets have been logged yet."
+
+    await message.reply_text(text, ParseMode.HTML)
+
+
+import pytz
+import datetime
+
+IST = pytz.timezone("Asia/Kolkata")
+
+async def weekly_report():
+    while True:
+        now = datetime.datetime.now(IST)
+
+        # Schedule for next Sunday 00:00 IST
+        days_until_sunday = (6 - now.weekday()) % 7  # 6 = Sunday
+        next_run = now + datetime.timedelta(days=days_until_sunday)
+        next_run = next_run.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        wait_time = (next_run - now).total_seconds()
+        print(f"[⏳] Waiting {wait_time / 3600:.2f} hours until next report...")
+
+        await asyncio.sleep(wait_time)
+
+        # Re-fetch current time at execution
+        now = datetime.datetime.now(IST)
+
+        # Weekly reset count
+        reset_doc = weekly_stats_col.find_one({"_id": "week_counter"})
+        reset_count = reset_doc["count"] if reset_doc else 0
+        total_users = users_col.count_documents({})
+
+        # Top 3 resetters
+        top_users = leaderboard_col.find().sort(
+            [("count", -1), ("last_reset", -1)]
+        ).limit(3)
+
+        emojis = ["🥇", "🥈", "🥉"]
+        leaderboard_text = ""
+        for i, user in enumerate(top_users):
+            name = user.get("name", "Unknown").replace("<", "&lt;").replace(">", "&gt;")
+            count = user.get("count", 0)
+            leaderboard_text += f"{emojis[i]} {name} — <b>{count}</b> resets\n"
+
+        report_text = (
+            "<b>📊 Weekly Bot Statistics</b>\n\n"
+            f"🗓️ Week Ending: {now.strftime('%A, %d %b %Y')}\n"
+            f"👥 Total Users: <b>{total_users}</b>\n"
+            f"🔁 Successful Resets This Week: <b>{reset_count}</b>\n\n"
+            f"🏆 <b>Top 3 Resetters:</b>\n{leaderboard_text or 'No resets this week.'}\n\n"
+            "💎 Bot by @BotPlays90"
+        )
+
+        try:
+            await app.send_message(ADMIN_ID, report_text, parse_mode="HTML")
+        except Exception as e:
+            print(f"Error sending report: {e}")
+
+        weekly_stats_col.update_one({"_id": "week_counter"}, {"$set": {"count": 0}}, upsert=True)
+
 
 keep_alive()
 
