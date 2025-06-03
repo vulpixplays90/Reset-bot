@@ -15,7 +15,7 @@ from server import keep_alive
 # Configuration
 API_ID = 26222466
 API_HASH = "9f70e2ce80e3676b56265d4510561aef"
-BOT_TOKEN = "7947805886:AAG6oP1MTnf4W2MV3C5Q3-N86irQZC5Ixhs"
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROUP_LINK = 'https://t.me/hyporesetgc'
 DEVELOPER = 'botplays90'
 ADMIN_ID = 6897739611
