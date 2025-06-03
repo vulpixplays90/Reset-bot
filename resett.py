@@ -15,7 +15,7 @@ from server import keep_alive
 # Configuration
 API_ID = 26222466
 API_HASH = "9f70e2ce80e3676b56265d4510561aef"
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = "7947805886:AAG6oP1MTnf4W2MV3C5Q3-N86irQZC5Ixhs"
 GROUP_LINK = 'https://t.me/hyporesetgc'
 DEVELOPER = 'botplays90'
 ADMIN_ID = 6897739611
@@ -30,6 +30,8 @@ users_col = db["users"]
 stats_col = db["stats"]
 sticker_col = db["sticker"]
 weekly_stats_col = db["weekly_stats"]
+leaderboard_col = db["leaderboard"]
+
 
 
 # Pyrogram client
@@ -137,48 +139,35 @@ async def handle_reset_group(client, message: Message):
 async def handle_reset_reply(client, message: Message):
     user_id = message.from_user.id
 
+    # Check if the user is in reset state
     if user_id not in user_reset_state:
         return
 
     state = user_reset_state[user_id]
+
+    # Check if reply is to the correct prompt
     if (
         message.chat.id != state["chat_id"]
         or message.reply_to_message_id != state["prompt_msg_id"]
     ):
         return
 
-    # Split inputs
-    inputs = [
-        x.strip() for x in message.text.replace(",", "\n").split("\n")
-        if x.strip()
-    ]
+    # Get and sanitize input
+    input_text = message.text.strip()
 
-    if not inputs:
-        await message.reply_text("❌ Please provide at least one valid username/email.")
+    # Block empty or batch-style input
+    if not input_text:
+        await message.reply_text("❌ Please provide a valid username or email.")
         return
 
-    if len(inputs) > 5:
-        await message.reply_text("❌ You can only reset a maximum of 5 accounts at once.")
+    if any(sep in input_text for sep in [",", "\n"]) or len(input_text.split()) != 1:
+        await message.reply_text("⚠️ Please send only ONE username or email at a time.")
         return
 
-    # Only apply cooldown if batch (2 to 5 inputs)
-    if len(inputs) > 1:
-        if user_id in user_cooldowns:
-            await message.reply_text("⏳ You must wait 30 seconds before sending another batch of resets.")
-            return
-        user_cooldowns[user_id] = True
-        asyncio.create_task(remove_batch_cooldown(user_id))
+    # Process the single reset request
+    processing_msg = await message.reply_text("⚡ Processing your request...")
 
-    # Start processing
-    processing_msg = await message.reply_text(f"⚡ Processing {len(inputs)} accounts...")
-
-    semaphore = asyncio.Semaphore(5)
-    tasks = [
-        process_reset_request(client, message, input_text, semaphore)
-        for input_text in inputs
-    ]
-
-    await asyncio.gather(*tasks)
+    await process_reset_request(client, message, input_text)
 
     try:
         await client.delete_messages(message.chat.id, processing_msg.id)
@@ -186,10 +175,6 @@ async def handle_reset_reply(client, message: Message):
         pass
 
     del user_reset_state[user_id]
-
-async def remove_batch_cooldown(user_id):
-    await asyncio.sleep(30)
-    user_cooldowns.pop(user_id, None)
 
 
 
@@ -394,7 +379,6 @@ async def handle_chat_member_update(client, update):
 
 @app.on_message(filters.command("leaderboard"))
 async def leaderboard(client, message: Message):
-    leaderboard_col = db["leaderboard"]
     top_users = leaderboard_col.find().sort(
         [("count", -1), ("last_reset", -1)]
     ).limit(10)
