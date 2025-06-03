@@ -198,7 +198,38 @@ async def handle_generic_error(client, message, input_text, error, start_time):
 
 
 
-async def handle_reset_logic(client, message: Message, input_text: str, start_time):
+import uuid
+import string
+import random
+
+def generate_instagram_headers_and_data(input_text):
+    csrf_token = ''.join(random.choices(string.ascii_letters + string.digits, k=32))
+    guid = str(uuid.uuid4())
+    device_id = str(uuid.uuid4())
+
+    data = {
+        "_csrftoken": csrf_token,
+        "guid": guid,
+        "device_id": device_id
+    }
+
+    if "@" in input_text:
+        data["user_email"] = input_text
+    else:
+        data["username"] = input_text
+
+    headers = {
+        "user-agent": f"Instagram 150.0.0.0.000 Android (29/10; 300dpi; 720x1440; "
+                      f"{''.join(random.choices(string.ascii_lowercase + string.digits, k=16))}/"
+                      f"{''.join(random.choices(string.ascii_lowercase + string.digits, k=16))}; "
+                      f"{''.join(random.choices(string.ascii_lowercase + string.digits, k=16))}; "
+                      f"{''.join(random.choices(string.ascii_lowercase + string.digits, k=16))}; "
+                      f"{''.join(random.choices(string.ascii_lowercase + string.digits, k=16))}; en_GB;)"
+    }
+
+    return headers, data
+
+async def handle_reset_logic(client, message, input_text, start_time):
     chat_id = message.chat.id
     user = message.from_user
 
@@ -209,14 +240,13 @@ async def handle_reset_logic(client, message: Message, input_text: str, start_ti
             reply_to_message_id=message.id
         )
 
+        headers, data = generate_instagram_headers_and_data(input_text)
+
         async with httpx.AsyncClient(timeout=10.0) as http_client:
             response = await http_client.post(
                 'https://i.instagram.com/api/v1/accounts/send_password_reset/',
-                headers={
-                    'user-agent': 'Mozilla/5.0',
-                    'x-csrftoken': 'vEG96oJnlEsyUWNS53bHLkVTMFYQKCBV'
-                },
-                data={"user_email": input_text}
+                headers=headers,
+                data=data
             )
             res = response.json()
 
@@ -242,6 +272,23 @@ async def handle_reset_logic(client, message: Message, input_text: str, start_ti
                 {"$inc": {"count": 1}},
                 upsert=True
             )
+            db["leaderboard"].update_one(
+                {"_id": user.id},
+                {
+                    "$inc": {"count": 1},
+                    "$set": {
+                        "name": user.first_name,
+                        "last_reset": time.time()
+                    }
+                },
+                upsert=True
+            )
+            weekly_stats_col.update_one(
+                {"_id": "week_counter"},
+                {"$inc": {"count": 1}},
+                upsert=True
+            )
+
             result_text = (
                 f"━━━━━━━━━━━━━━━━━━\n"
                 f"🔹 Status: ✅ Success\n"
@@ -251,39 +298,16 @@ async def handle_reset_logic(client, message: Message, input_text: str, start_ti
                 f"━━━━━━━━━━━━━━━━━━\n"
                 f"💎 Bot by @BotPlays90"
             )
-                # ✅ Log successful reset in leaderboard collection
-            db["leaderboard"].update_one(
-            {"_id": user.id},
-            {
-            "$inc": {"count": 1},
-            "$set": {
-            "name": user.first_name,
-            "last_reset": time.time()
-            }
-        },
-        upsert=True
-        )
-            weekly_stats_col.update_one(
-            {"_id": "week_counter"},
-            {"$inc": {"count": 1}},
-            upsert=True
-        )
-            
-            
 
         await client.delete_messages(chat_id, temp_msg.id)
-        await client.send_message(
-            chat_id,
-            result_text,
-            reply_to_message_id=message.id
-        )
+        await client.send_message(chat_id, result_text, reply_to_message_id=message.id)
 
     except httpx.RequestError as e:
-        await handle_request_error(client, message, input_text, e, start_time)
+        await message.reply_text(f"⚠️ Request error for {input_text}:\n{e}")
     except RPCError as e:
-        await handle_rpc_error(client, message, input_text, e, start_time)
+        await message.reply_text(f"⚠️ Telegram RPC error for {input_text}:\n{e}")
     except Exception as e:
-        await handle_generic_error(client, message, input_text, e, start_time)
+        await message.reply_text(f"⚠️ Unexpected error for {input_text}:\n{e}")
 
 
 
