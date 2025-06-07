@@ -465,17 +465,22 @@ async def weekly_report():
 
         weekly_stats_col.update_one({"_id": "week_counter"}, {"$set": {"count": 0}}, upsert=True)
 
+from datetime import datetime, timedelta
+from pytz import timezone
+
 @app.on_message(filters.command("weeklystats") & filters.user(ADMIN_ID))
 async def weekly_stats_command(client, message: Message):
     total_users = users_col.count_documents({})
-
+    
     reset_doc = weekly_stats_col.find_one({"_id": "week_counter"})
     reset_count = reset_doc["count"] if reset_doc else 0
 
-    # Get top 3 resetters
-    top_users = leaderboard_col.find().sort(
-        [("count", -1), ("last_reset", -1)]
-    ).limit(3)
+    # Filter top resetters in the last 7 days
+    ist = timezone("Asia/Kolkata")
+    one_week_ago = datetime.now(ist) - timedelta(days=7)
+    top_users = leaderboard_col.find({
+        "last_reset": {"$gte": one_week_ago.timestamp()}
+    }).sort([("count", -1), ("last_reset", -1)]).limit(3)
 
     emojis = ["🥇", "🥈", "🥉"]
     leaderboard_text = ""
@@ -484,21 +489,18 @@ async def weekly_stats_command(client, message: Message):
         count = user.get("count", 0)
         leaderboard_text += f"{emojis[i]} {name} — <b>{count}</b> resets\n"
 
-    from datetime import datetime
-    from pytz import timezone
-    now = datetime.now(timezone("Asia/Kolkata"))
-
+    now = datetime.now(ist)
     report_text = (
         "<b>📊 Weekly Bot Statistics</b>\n\n"
         f"🗓️ Week Ending: {now.strftime('%A, %d %b %Y')}\n"
         f"👥 Total Users: <b>{total_users}</b>\n"
         f"🔁 Resets This Week: <b>{reset_count}</b>\n\n"
-        f"🏆 <b>Top 3 Resetters:</b>\n{leaderboard_text or 'No resets yet.'}\n\n"
+        f"🏆 <b>Top 3 Resetters This Week:</b>\n{leaderboard_text or 'No resets yet.'}\n\n"
         "💎 Bot by @BotPlays90"
     )
 
     await message.reply_text(report_text, parse_mode=ParseMode.HTML)
-    
+
 
 
 keep_alive()
