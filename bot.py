@@ -459,7 +459,7 @@ async def weekly_report():
         )
 
         try:
-            await app.send_message(ADMIN_ID, report_text, parse_mode="HTML")
+            await app.send_message(ADMIN_ID, report_text, parse_mode=ParseMode.HTML)
         except Exception as e:
             print(f"Error sending report: {e}")
 
@@ -497,7 +497,7 @@ async def weekly_stats_command(client, message: Message):
         "💎 Bot by @BotPlays90"
     )
 
-    await message.reply_text(report_text, parse_mode="HTML")
+    await message.reply_text(report_text, parse_mode=ParseMode.HTML)
     
 
 
