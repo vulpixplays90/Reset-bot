@@ -501,6 +501,11 @@ async def weekly_stats_command(client, message: Message):
 
     await message.reply_text(report_text, parse_mode=ParseMode.HTML)
 
+@app.on_message(filters.command("resetweek") & filters.user(ADMIN_ID))
+async def reset_weekly_data(client, message: Message):
+    weekly_stats_col.update_one({"_id": "week_counter"}, {"$set": {"count": 0}}, upsert=True)
+    db["weekly_leaderboard"].delete_many({})
+    await message.reply_text("✅ Weekly stats and leaderboard have been reset.")
 
 
 keep_alive()
