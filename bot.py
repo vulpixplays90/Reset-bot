@@ -276,6 +276,19 @@ async def handle_reset_logic(client, message: Message, input_text: str, start_ti
         },
         upsert=True
         )
+            
+            db["weekly_leaderboard"].update_one(
+                {"_id": user.id},
+                {
+                "$inc": {"count": 1},
+                "$set": {
+                "name": user.first_name,
+                "last_reset": time.time()
+                }
+        },
+                upsert=True
+        )
+
             weekly_stats_col.update_one(
             {"_id": "week_counter"},
             {"$inc": {"count": 1}},
@@ -464,6 +477,7 @@ async def weekly_report():
             print(f"Error sending report: {e}")
 
         weekly_stats_col.update_one({"_id": "week_counter"}, {"$set": {"count": 0}}, upsert=True)
+        db["weekly_leaderboard"].delete_many({})
 
 from datetime import datetime, timedelta
 from pytz import timezone
@@ -478,9 +492,9 @@ async def weekly_stats_command(client, message: Message):
     # Filter top resetters in the last 7 days
     ist = timezone("Asia/Kolkata")
     one_week_ago = datetime.now(ist) - timedelta(days=7)
-    top_users = leaderboard_col.find({
-        "last_reset": {"$gte": one_week_ago.timestamp()}
-    }).sort([("count", -1), ("last_reset", -1)]).limit(3)
+    top_users = db["weekly_leaderboard"].find().sort(
+        [("count", -1), ("last_reset", -1)]).limit(3)
+    
 
     emojis = ["🥇", "🥈", "🥉"]
     leaderboard_text = ""
