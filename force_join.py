@@ -1,30 +1,25 @@
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
-from pyrogram.errors import UserNotParticipant, ChatAdminRequired, ChatWriteForbidden
+from pyrogram.errors import UserNotParticipant
 
-# Replace with your channel username or ID
-FORCE_JOIN_LINK = "https://t.me/+haA_76jVxq5mNGQ1"
-FORCE_JOIN_CHANNEL_ID = -1002658036915  # Replace with your private channel's ID
-
-
+FORCE_JOIN_USERNAME = "hyponet_remastered"  # Your public channel username (no '@')
 
 def check_membership(func):
     async def wrapper(client: Client, message: Message):
         try:
-            user = await client.get_chat_member(FORCE_JOIN_CHANNEL_ID, message.from_user.id)
+            user = await client.get_chat_member(FORCE_JOIN_USERNAME, message.from_user.id)
             if user.status in ["kicked", "left"]:
                 raise UserNotParticipant
         except UserNotParticipant:
             keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔐 Join Channel", url=FORCE_JOIN_LINK)]
+                [InlineKeyboardButton("🔐 Join @hyponet_remastered", url=f"https://t.me/{FORCE_JOIN_USERNAME}")]
             ])
             return await message.reply(
-                "🚫 You must join our private channel to use this bot.",
+                "🚫 To use this bot, please join our public channel first.",
                 reply_markup=keyboard
             )
         except Exception as e:
             print(f"Force join check error: {e}")
-            return await message.reply("❗ An error occurred. Please try again later.")
+            return
         return await func(client, message)
     return wrapper
-
