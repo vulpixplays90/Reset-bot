@@ -223,6 +223,7 @@ async def handle_reset_logic(client, message: Message, input_text: str, start_ti
         )
 
         async with httpx.AsyncClient(timeout=10.0) as http_client:
+            # 1️⃣ Primary API (Mobile endpoint)
             response = await http_client.post(
                 'https://i.instagram.com/api/v1/accounts/send_password_reset/',
                 headers={
@@ -231,12 +232,44 @@ async def handle_reset_logic(client, message: Message, input_text: str, start_ti
                 },
                 data={"user_email": input_text}
             )
-            res = response.json()
 
+            res = response.json()
+            status = res.get("status", "fail")
+
+            # 2️⃣ If first fails → Fallback to desktop API
+            if status != 'ok':
+                fallback_headers = {
+                    "accept": "*/*",
+                    "content-type": "application/x-www-form-urlencoded",
+                    "origin": "https://www.instagram.com",
+                    "referer": "https://www.instagram.com/accounts/password/reset/?source=fxcal",
+                    "user-agent": "Mozilla/5.0 (Linux; Android 10...)",
+                    "x-asbd-id": "129477",
+                    "x-csrftoken": "BbJnjd.Jnw20VyXU0qSsHLV",
+                    "x-ig-app-id": "1217981644879628",
+                    "x-instagram-ajax": "1015181662",
+                    "x-requested-with": "XMLHttpRequest"
+                }
+
+                fallback_data = {
+                    "email_or_username": input_text,
+                    "flow": "fxcal"
+                }
+
+                fallback_response = await http_client.post(
+                    'https://www.instagram.com/api/v1/web/accounts/account_recovery_send_ajax/',
+                    headers=fallback_headers,
+                    data=fallback_data
+                )
+
+                res = fallback_response.json()
+                status = res.get("status", "fail")
+
+        # 📊 Timing and obfuscation
         speed = round(time.time() - start_time, 2)
-        status = res.get("status", "fail")
         obfuscated = res.get("obfuscated_email", input_text)
 
+        # 🧾 Format final result
         if status != 'ok':
             error_message = res.get('message', 'Unknown error')
             result_text = (
@@ -250,11 +283,34 @@ async def handle_reset_logic(client, message: Message, input_text: str, start_ti
                 f"💎 Bot by @BotPlays90"
             )
         else:
+            # Update DB counters
             stats_col.update_one(
                 {"_id": "reset_counter"},
                 {"$inc": {"count": 1}},
                 upsert=True
             )
+            db["leaderboard"].update_one(
+                {"_id": user.id},
+                {
+                    "$inc": {"count": 1},
+                    "$set": {"name": user.first_name, "last_reset": time.time()}
+                },
+                upsert=True
+            )
+            db["weekly_leaderboard"].update_one(
+                {"_id": user.id},
+                {
+                    "$inc": {"count": 1},
+                    "$set": {"name": user.first_name, "last_reset": time.time()}
+                },
+                upsert=True
+            )
+            weekly_stats_col.update_one(
+                {"_id": "week_counter"},
+                {"$inc": {"count": 1}},
+                upsert=True
+            )
+
             result_text = (
                 f"━━━━━━━━━━━━━━━━━━\n"
                 f"🔹 Status: ✅ Success\n"
@@ -264,38 +320,6 @@ async def handle_reset_logic(client, message: Message, input_text: str, start_ti
                 f"━━━━━━━━━━━━━━━━━━\n"
                 f"💎 Bot by @BotPlays90"
             )
-                # ✅ Log successful reset in leaderboard collection
-            db["leaderboard"].update_one(
-            {"_id": user.id},
-            {
-            "$inc": {"count": 1},
-            "$set": {
-            "name": user.first_name,
-            "last_reset": time.time()
-            }
-        },
-        upsert=True
-        )
-            
-            db["weekly_leaderboard"].update_one(
-                {"_id": user.id},
-                {
-                "$inc": {"count": 1},
-                "$set": {
-                "name": user.first_name,
-                "last_reset": time.time()
-                }
-        },
-                upsert=True
-        )
-
-            weekly_stats_col.update_one(
-            {"_id": "week_counter"},
-            {"$inc": {"count": 1}},
-            upsert=True
-        )
-            
-            
 
         await client.delete_messages(chat_id, temp_msg.id)
         await client.send_message(
@@ -310,6 +334,7 @@ async def handle_reset_logic(client, message: Message, input_text: str, start_ti
         await handle_rpc_error(client, message, input_text, e, start_time)
     except Exception as e:
         await handle_generic_error(client, message, input_text, e, start_time)
+
 
 
 
