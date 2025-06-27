@@ -214,7 +214,7 @@ async def handle_generic_error(client, message, input_text, error, start_time):
 async def handle_reset_logic(client, message: Message, input_text: str, start_time):
     chat_id = message.chat.id
     user = message.from_user
-    engine_used = "❌"  # Default
+    engine_used = "❌"
 
     try:
         temp_msg = await client.send_message(
@@ -224,54 +224,55 @@ async def handle_reset_logic(client, message: Message, input_text: str, start_ti
         )
 
         async with httpx.AsyncClient(timeout=10.0) as http_client:
-            # 1️⃣ First Reset Engine
-            response = await http_client.post(
-                'https://i.instagram.com/api/v1/accounts/send_password_reset/',
-                headers={
-                    'user-agent': 'Mozilla/5.0',
-                    'x-csrftoken': 'vEG96oJnlEsyUWNS53bHLkVTMFYQKCBV'
-                },
-                data={"user_email": input_text}
-            )
-            res = response.json()
+            # 1️⃣ First Reset Engine (Mobile API)
+            try:
+                response = await http_client.post(
+                    'https://i.instagram.com/api/v1/accounts/send_password_reset/',
+                    headers={
+                        'user-agent': 'Mozilla/5.0',
+                        'x-csrftoken': 'vEG96oJnlEsyUWNS53bHLkVTMFYQKCBV'
+                    },
+                    data={"user_email": input_text}
+                )
+                res = response.json()
+            except Exception:
+                res = {"status": "fail", "message": "Invalid JSON or failed to connect"}
+            
             status = res.get("status", "fail")
-
             if status == 'ok':
                 engine_used = "1st Reset Engine"
             else:
-                # 2️⃣ Second Reset Engine (Fallback)
-                fallback_headers = {
-                    "accept": "*/*",
-                    "content-type": "application/x-www-form-urlencoded",
-                    "origin": "https://www.instagram.com",
-                    "referer": "https://www.instagram.com/accounts/password/reset/?source=fxcal",
-                    "user-agent": "Mozilla/5.0 (Linux; Android 10...)",
-                    "x-asbd-id": "129477",
-                    "x-csrftoken": "BbJnjd.Jnw20VyXU0qSsHLV",
-                    "x-ig-app-id": "1217981644879628",
-                    "x-instagram-ajax": "1015181662",
-                    "x-requested-with": "XMLHttpRequest"
-                }
+                # 2️⃣ Fallback to Second Reset Engine (Web API)
+                try:
+                    fallback_response = await http_client.post(
+                        'https://www.instagram.com/api/v1/web/accounts/account_recovery_send_ajax/',
+                        headers={
+                            "accept": "*/*",
+                            "content-type": "application/x-www-form-urlencoded",
+                            "origin": "https://www.instagram.com",
+                            "referer": "https://www.instagram.com/accounts/password/reset/?source=fxcal",
+                            "user-agent": "Mozilla/5.0 (Linux; Android 10...)",
+                            "x-asbd-id": "129477",
+                            "x-csrftoken": "BbJnjd.Jnw20VyXU0qSsHLV",
+                            "x-ig-app-id": "1217981644879628",
+                            "x-instagram-ajax": "1015181662",
+                            "x-requested-with": "XMLHttpRequest"
+                        },
+                        data={
+                            "email_or_username": input_text,
+                            "flow": "fxcal"
+                        }
+                    )
+                    res = fallback_response.json()
+                    if res.get("status") == "ok":
+                        engine_used = "2nd Reset Engine"
+                except Exception as e:
+                    res = {"status": "fail", "message": f"Fallback failed: {e}"}
 
-                fallback_data = {
-                    "email_or_username": input_text,
-                    "flow": "fxcal"
-                }
-
-                fallback_response = await http_client.post(
-                    'https://www.instagram.com/api/v1/web/accounts/account_recovery_send_ajax/',
-                    headers=fallback_headers,
-                    data=fallback_data
-                )
-
-                res = fallback_response.json()
-                status = res.get("status", "fail")
-
-                if status == "ok":
-                    engine_used = "2nd Reset Engine"
-
+        # Timing
         speed = round(time.time() - start_time, 2)
-        obfuscated = res.get("obfuscated_email", input_text)
+        obfuscated = res.get("obfuscated_email") or input_text
+        status = res.get("status", "fail")
 
         if status != 'ok':
             error_message = res.get('message', 'Unknown error')
@@ -287,7 +288,7 @@ async def handle_reset_logic(client, message: Message, input_text: str, start_ti
                 f"💎 Bot by @BotPlays90"
             )
         else:
-            # ✅ Success: Update DB
+            # Success, update stats
             stats_col.update_one({"_id": "reset_counter"}, {"$inc": {"count": 1}}, upsert=True)
             db["leaderboard"].update_one(
                 {"_id": user.id},
