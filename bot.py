@@ -223,8 +223,11 @@ async def handle_reset_logic(client, message: Message, input_text: str, start_ti
             reply_to_message_id=message.id
         )
 
+        res = {}
+        status = "fail"
+
         async with httpx.AsyncClient(timeout=10.0) as http_client:
-            # 1️⃣ First Reset Engine (Mobile API)
+            # 1️⃣ First Reset API (Mobile)
             try:
                 response = await http_client.post(
                     'https://i.instagram.com/api/v1/accounts/send_password_reset/',
@@ -235,14 +238,14 @@ async def handle_reset_logic(client, message: Message, input_text: str, start_ti
                     data={"user_email": input_text}
                 )
                 res = response.json()
+                status = res.get("status", "fail")
+                if status == "ok":
+                    engine_used = "1st Reset Engine"
             except Exception:
-                res = {"status": "fail", "message": "Invalid JSON or failed to connect"}
-            
-            status = res.get("status", "fail")
-            if status == 'ok':
-                engine_used = "1st Reset Engine"
-            else:
-                # 2️⃣ Fallback to Second Reset Engine (Web API)
+                res = {"status": "fail", "message": "First API error"}
+
+            # 2️⃣ If first failed, try second API (Web)
+            if status != "ok":
                 try:
                     fallback_response = await http_client.post(
                         'https://www.instagram.com/api/v1/web/accounts/account_recovery_send_ajax/',
@@ -264,15 +267,15 @@ async def handle_reset_logic(client, message: Message, input_text: str, start_ti
                         }
                     )
                     res = fallback_response.json()
-                    if res.get("status") == "ok":
+                    status = res.get("status", "fail")
+                    if status == "ok":
                         engine_used = "2nd Reset Engine"
                 except Exception as e:
                     res = {"status": "fail", "message": f"Fallback failed: {e}"}
 
-        # Timing
+        # Finalize result
         speed = round(time.time() - start_time, 2)
         obfuscated = res.get("obfuscated_email") or input_text
-        status = res.get("status", "fail")
 
         if status != 'ok':
             error_message = res.get('message', 'Unknown error')
@@ -288,7 +291,7 @@ async def handle_reset_logic(client, message: Message, input_text: str, start_ti
                 f"💎 Bot by @BotPlays90"
             )
         else:
-            # Success, update stats
+            # ✅ Update counters
             stats_col.update_one({"_id": "reset_counter"}, {"$inc": {"count": 1}}, upsert=True)
             db["leaderboard"].update_one(
                 {"_id": user.id},
@@ -322,6 +325,7 @@ async def handle_reset_logic(client, message: Message, input_text: str, start_ti
         await handle_rpc_error(client, message, input_text, e, start_time)
     except Exception as e:
         await handle_generic_error(client, message, input_text, e, start_time)
+
 
 
 
