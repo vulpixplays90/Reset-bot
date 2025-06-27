@@ -214,7 +214,7 @@ async def handle_generic_error(client, message, input_text, error, start_time):
 async def handle_reset_logic(client, message: Message, input_text: str, start_time):
     chat_id = message.chat.id
     user = message.from_user
-    engine_used = "❌"
+    engine_used = "2nd Reset Engine"
 
     try:
         temp_msg = await client.send_message(
@@ -223,59 +223,34 @@ async def handle_reset_logic(client, message: Message, input_text: str, start_ti
             reply_to_message_id=message.id
         )
 
-        res = {}
-        status = "fail"
-
         async with httpx.AsyncClient(timeout=10.0) as http_client:
-            # 1️⃣ First Reset API (Mobile)
             try:
                 response = await http_client.post(
-                    'https://i.instagram.com/api/v1/accounts/send_password_reset/',
+                    'https://www.instagram.com/api/v1/web/accounts/account_recovery_send_ajax/',
                     headers={
-                        'user-agent': 'Mozilla/5.0',
-                        'x-csrftoken': 'vEG96oJnlEsyUWNS53bHLkVTMFYQKCBV'
+                        "accept": "*/*",
+                        "content-type": "application/x-www-form-urlencoded",
+                        "origin": "https://www.instagram.com",
+                        "referer": "https://www.instagram.com/accounts/password/reset/?source=fxcal",
+                        "user-agent": "Mozilla/5.0 (Linux; Android 10...)",
+                        "x-asbd-id": "129477",
+                        "x-csrftoken": "BbJnjd.Jnw20VyXU0qSsHLV",
+                        "x-ig-app-id": "1217981644879628",
+                        "x-instagram-ajax": "1015181662",
+                        "x-requested-with": "XMLHttpRequest"
                     },
-                    data={"user_email": input_text}
+                    data={
+                        "email_or_username": input_text,
+                        "flow": "fxcal"
+                    }
                 )
                 res = response.json()
-                status = res.get("status", "fail")
-                if status == "ok":
-                    engine_used = "1st Reset Engine"
-            except Exception:
-                res = {"status": "fail", "message": "First API error"}
+            except Exception as e:
+                res = {"status": "fail", "message": f"Request failed: {e}"}
 
-            # 2️⃣ If first failed, try second API (Web)
-            if status != "ok":
-                try:
-                    fallback_response = await http_client.post(
-                        'https://www.instagram.com/api/v1/web/accounts/account_recovery_send_ajax/',
-                        headers={
-                            "accept": "*/*",
-                            "content-type": "application/x-www-form-urlencoded",
-                            "origin": "https://www.instagram.com",
-                            "referer": "https://www.instagram.com/accounts/password/reset/?source=fxcal",
-                            "user-agent": "Mozilla/5.0 (Linux; Android 10...)",
-                            "x-asbd-id": "129477",
-                            "x-csrftoken": "BbJnjd.Jnw20VyXU0qSsHLV",
-                            "x-ig-app-id": "1217981644879628",
-                            "x-instagram-ajax": "1015181662",
-                            "x-requested-with": "XMLHttpRequest"
-                        },
-                        data={
-                            "email_or_username": input_text,
-                            "flow": "fxcal"
-                        }
-                    )
-                    res = fallback_response.json()
-                    status = res.get("status", "fail")
-                    if status == "ok":
-                        engine_used = "2nd Reset Engine"
-                except Exception as e:
-                    res = {"status": "fail", "message": f"Fallback failed: {e}"}
-
-        # Finalize result
         speed = round(time.time() - start_time, 2)
         obfuscated = res.get("obfuscated_email") or input_text
+        status = res.get("status", "fail")
 
         if status != 'ok':
             error_message = res.get('message', 'Unknown error')
@@ -291,7 +266,6 @@ async def handle_reset_logic(client, message: Message, input_text: str, start_ti
                 f"💎 Bot by @BotPlays90"
             )
         else:
-            # ✅ Update counters
             stats_col.update_one({"_id": "reset_counter"}, {"$inc": {"count": 1}}, upsert=True)
             db["leaderboard"].update_one(
                 {"_id": user.id},
