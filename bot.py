@@ -211,11 +211,13 @@ async def handle_generic_error(client, message, input_text, error, start_time):
 
 
 
+import uuid, random, string
+
 async def handle_reset_logic(client, message: Message, input_text: str, start_time):
     chat_id = message.chat.id
     user = message.from_user
-    engine_used = "2nd Reset Engine"
-
+    engine_used = "Custom Mobile API"
+    
     try:
         temp_msg = await client.send_message(
             chat_id,
@@ -223,37 +225,49 @@ async def handle_reset_logic(client, message: Message, input_text: str, start_ti
             reply_to_message_id=message.id
         )
 
+        # Dynamic values
+        _csrftoken = ''.join(random.choices(string.ascii_letters + string.digits, k=32))
+        guid = str(uuid.uuid4())
+        device_id = str(uuid.uuid4())
+        user_agent = (
+            f"Instagram 150.0.0.0.000 Android (29/10; 300dpi; 720x1440; "
+            f"{''.join(random.choices(string.ascii_lowercase+string.digits, k=16))}/"
+            f"{''.join(random.choices(string.ascii_lowercase+string.digits, k=16))}; "
+            f"{''.join(random.choices(string.ascii_lowercase+string.digits, k=16))}; "
+            f"{''.join(random.choices(string.ascii_lowercase+string.digits, k=16))}; "
+            f"{''.join(random.choices(string.ascii_lowercase+string.digits, k=16))}; en_GB;)"
+        )
+
+        headers = {
+            "user-agent": user_agent
+        }
+
+        data = {
+            "_csrftoken": _csrftoken,
+            "guid": guid,
+            "device_id": device_id
+        }
+
+        # Add correct field based on type
+        if "@" in input_text:
+            data["user_email"] = input_text
+        else:
+            data["username"] = input_text
+
         async with httpx.AsyncClient(timeout=10.0) as http_client:
-            try:
-                response = await http_client.post(
-                    'https://www.instagram.com/api/v1/web/accounts/account_recovery_send_ajax/',
-                    headers={
-                        "accept": "*/*",
-                        "content-type": "application/x-www-form-urlencoded",
-                        "origin": "https://www.instagram.com",
-                        "referer": "https://www.instagram.com/accounts/password/reset/?source=fxcal",
-                        "user-agent": "Mozilla/5.0 (Linux; Android 10...)",
-                        "x-asbd-id": "129477",
-                        "x-csrftoken": "BbJnjd.Jnw20VyXU0qSsHLV",
-                        "x-ig-app-id": "1217981644879628",
-                        "x-instagram-ajax": "1015181662",
-                        "x-requested-with": "XMLHttpRequest"
-                    },
-                    data={
-                        "email_or_username": input_text,
-                        "flow": "fxcal"
-                    }
-                )
-                res = response.json()
-            except Exception as e:
-                res = {"status": "fail", "message": f"Request failed: {e}"}
+            response = await http_client.post(
+                "https://i.instagram.com/api/v1/accounts/send_password_reset/",
+                headers=headers,
+                data=data
+            )
+            res = response.json()
 
         speed = round(time.time() - start_time, 2)
         obfuscated = res.get("obfuscated_email") or input_text
         status = res.get("status", "fail")
 
-        if status != 'ok':
-            error_message = res.get('message', 'Unknown error')
+        if status != "ok":
+            error_message = res.get("message", "Unknown error")
             result_text = (
                 f"━━━━━━━━━━━━━━━━━━\n"
                 f"🔹 Status: ❌ Failed\n"
@@ -266,6 +280,7 @@ async def handle_reset_logic(client, message: Message, input_text: str, start_ti
                 f"💎 Bot by @BotPlays90"
             )
         else:
+            # Update stats
             stats_col.update_one({"_id": "reset_counter"}, {"$inc": {"count": 1}}, upsert=True)
             db["leaderboard"].update_one(
                 {"_id": user.id},
@@ -293,10 +308,6 @@ async def handle_reset_logic(client, message: Message, input_text: str, start_ti
         await client.delete_messages(chat_id, temp_msg.id)
         await client.send_message(chat_id, result_text, reply_to_message_id=message.id)
 
-    except httpx.RequestError as e:
-        await handle_request_error(client, message, input_text, e, start_time)
-    except RPCError as e:
-        await handle_rpc_error(client, message, input_text, e, start_time)
     except Exception as e:
         await handle_generic_error(client, message, input_text, e, start_time)
 
