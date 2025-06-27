@@ -214,6 +214,7 @@ async def handle_generic_error(client, message, input_text, error, start_time):
 async def handle_reset_logic(client, message: Message, input_text: str, start_time):
     chat_id = message.chat.id
     user = message.from_user
+    engine_used = "❌"  # Default
 
     try:
         temp_msg = await client.send_message(
@@ -223,7 +224,7 @@ async def handle_reset_logic(client, message: Message, input_text: str, start_ti
         )
 
         async with httpx.AsyncClient(timeout=10.0) as http_client:
-            # 1️⃣ Primary API (Mobile endpoint)
+            # 1️⃣ First Reset Engine
             response = await http_client.post(
                 'https://i.instagram.com/api/v1/accounts/send_password_reset/',
                 headers={
@@ -232,12 +233,13 @@ async def handle_reset_logic(client, message: Message, input_text: str, start_ti
                 },
                 data={"user_email": input_text}
             )
-
             res = response.json()
             status = res.get("status", "fail")
 
-            # 2️⃣ If first fails → Fallback to desktop API
-            if status != 'ok':
+            if status == 'ok':
+                engine_used = "1st Reset Engine"
+            else:
+                # 2️⃣ Second Reset Engine (Fallback)
                 fallback_headers = {
                     "accept": "*/*",
                     "content-type": "application/x-www-form-urlencoded",
@@ -265,11 +267,12 @@ async def handle_reset_logic(client, message: Message, input_text: str, start_ti
                 res = fallback_response.json()
                 status = res.get("status", "fail")
 
-        # 📊 Timing and obfuscation
+                if status == "ok":
+                    engine_used = "2nd Reset Engine"
+
         speed = round(time.time() - start_time, 2)
         obfuscated = res.get("obfuscated_email", input_text)
 
-        # 🧾 Format final result
         if status != 'ok':
             error_message = res.get('message', 'Unknown error')
             result_text = (
@@ -277,44 +280,32 @@ async def handle_reset_logic(client, message: Message, input_text: str, start_ti
                 f"🔹 Status: ❌ Failed\n"
                 f"🔹 Account: {obfuscated}\n"
                 f"🔹 Reason: {error_message}\n"
+                f"🔹 Engine: {engine_used}\n"
                 f"🔹 Processed by: @{user.first_name}\n"
                 f"⚡ Speed: {speed} seconds\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
                 f"💎 Bot by @BotPlays90"
             )
         else:
-            # Update DB counters
-            stats_col.update_one(
-                {"_id": "reset_counter"},
-                {"$inc": {"count": 1}},
-                upsert=True
-            )
+            # ✅ Success: Update DB
+            stats_col.update_one({"_id": "reset_counter"}, {"$inc": {"count": 1}}, upsert=True)
             db["leaderboard"].update_one(
                 {"_id": user.id},
-                {
-                    "$inc": {"count": 1},
-                    "$set": {"name": user.first_name, "last_reset": time.time()}
-                },
+                {"$inc": {"count": 1}, "$set": {"name": user.first_name, "last_reset": time.time()}},
                 upsert=True
             )
             db["weekly_leaderboard"].update_one(
                 {"_id": user.id},
-                {
-                    "$inc": {"count": 1},
-                    "$set": {"name": user.first_name, "last_reset": time.time()}
-                },
+                {"$inc": {"count": 1}, "$set": {"name": user.first_name, "last_reset": time.time()}},
                 upsert=True
             )
-            weekly_stats_col.update_one(
-                {"_id": "week_counter"},
-                {"$inc": {"count": 1}},
-                upsert=True
-            )
+            weekly_stats_col.update_one({"_id": "week_counter"}, {"$inc": {"count": 1}}, upsert=True)
 
             result_text = (
                 f"━━━━━━━━━━━━━━━━━━\n"
                 f"🔹 Status: ✅ Success\n"
                 f"🔹 Account: {obfuscated}\n"
+                f"🔹 Engine: {engine_used}\n"
                 f"🔹 Processed by: @{user.first_name}\n"
                 f"⚡ Speed: {speed} seconds\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
@@ -322,11 +313,7 @@ async def handle_reset_logic(client, message: Message, input_text: str, start_ti
             )
 
         await client.delete_messages(chat_id, temp_msg.id)
-        await client.send_message(
-            chat_id,
-            result_text,
-            reply_to_message_id=message.id
-        )
+        await client.send_message(chat_id, result_text, reply_to_message_id=message.id)
 
     except httpx.RequestError as e:
         await handle_request_error(client, message, input_text, e, start_time)
