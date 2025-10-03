@@ -48,6 +48,14 @@ app = Client(
 user_reset_state = {}
 pending_verification = {}
 
+
+# Add this near configuration
+CUSTOM_APIS = [
+    "https://your-first-api.com/reset",
+    "https://your-second-api.com/reset"
+]
+
+
 @app.on_message(filters.command(["start", "resett"]) & filters.private)
 @check_membership
 async def handle_start_private(client, message: Message):
@@ -162,8 +170,10 @@ async def handle_reset_reply(client, message: Message):
     if (
         message.chat.id != state["chat_id"]
         or message.reply_to_message_id != state["prompt_msg_id"]
-    ):
+):
         return
+
+
 
     # Get and sanitize input
     input_text = message.text.strip()
@@ -267,18 +277,55 @@ async def handle_reset_logic(client, message: Message, input_text: str, start_ti
         status = res.get("status", "fail")
 
         if status != "ok":
-            error_message = res.get("message", "Unknown error")
-            result_text = (
-                f"━━━━━━━━━━━━━━━━━━\n"
-                f"🔹 Status: ❌ Failed\n"
-                f"🔹 Account: {obfuscated}\n"
-                f"🔹 Reason: {error_message}\n"
-                f"🔹 Engine: {engine_used}\n"
-                f"🔹 Processed by: @{user.first_name}\n"
-                f"⚡ Speed: {speed} seconds\n"
-                f"━━━━━━━━━━━━━━━━━━\n"
-                f"💎 Bot by @BotPlays90"
-            )
+            # ------------------------------
+            # Fallback API loop
+            # ------------------------------
+            CUSTOM_APIS = [
+                "https://your-first-api.com/reset",
+                "https://your-second-api.com/reset"
+            ]
+            fallback_success = False
+
+            for api_url in CUSTOM_APIS:
+                try:
+                    async with httpx.AsyncClient(timeout=10.0) as http_client:
+                        resp = await http_client.get(f"{api_url}?email={input_text}")
+                        if resp.status_code == 200:
+                            try:
+                                resp_json = resp.json()
+                            except Exception:
+                                resp_json = {"raw_text": resp.text}
+
+                            if resp_json.get("ok"):
+                                fallback_success = True
+                                obfuscated = resp_json.get("obfuscated_account") or input_text
+                                result_text = (
+                                    f"━━━━━━━━━━━━━━━━━━\n"
+                                    f"🔹 Status: ✅ Success\n"
+                                    f"🔹 Account: {obfuscated}\n"
+                                    f"🔹 Engine: Custom API\n"
+                                    f"🔹 Processed by: @{user.first_name}\n"
+                                    f"⚡ Speed: {round(time.time() - start_time, 2)} seconds\n"
+                                    f"━━━━━━━━━━━━━━━━━━\n"
+                                    f"💎 Bot by @BotPlays90"
+                                )
+                                break
+                except Exception as e:
+                    print(f"Fallback API {api_url} failed: {e}")
+
+            if not fallback_success:
+                error_message = res.get("message", "Unknown error")
+                result_text = (
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"🔹 Status: ❌ Failed\n"
+                    f"🔹 Account: {obfuscated}\n"
+                    f"🔹 Reason: {error_message}\n"
+                    f"🔹 Engine: {engine_used}\n"
+                    f"🔹 Processed by: @{user.first_name}\n"
+                    f"⚡ Speed: {speed} seconds\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"💎 Bot by @BotPlays90"
+                )
         else:
             # Update stats
             stats_col.update_one({"_id": "reset_counter"}, {"$inc": {"count": 1}}, upsert=True)
