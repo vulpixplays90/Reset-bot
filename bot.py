@@ -51,8 +51,7 @@ pending_verification = {}
 
 # Add this near configuration
 CUSTOM_APIS = [
-    "https://your-first-api.com/reset",
-    "https://your-second-api.com/reset"
+    "https://reset-bot-lac.vercel.app/reset"
 ]
 
 
