@@ -27,8 +27,8 @@ from pymongo import MongoClient
 # -------------------------
 MONGO_URI = os.environ.get("MONGO_URI") or "mongodb+srv://botplays90:botplays90@botplays.ycka9.mongodb.net/?retryWrites=true&w=majority&appName=botplays"
 ADMIN_API_KEY = os.environ.get("ADMIN_API_KEY", "changeme")
-GLOBAL_COOLDOWN = float(os.environ.get("GLOBAL_COOLDOWN", 10.0))
-HTTP_TIMEOUT = float(os.environ.get("HTTP_TIMEOUT", 10.0))
+GLOBAL_COOLDOWN = float(os.environ.get("GLOBAL_COOLDOWN", 0))
+HTTP_TIMEOUT = float(os.environ.get("HTTP_TIMEOUT", 0))
 
 # -------------------------
 # App + DB setup
