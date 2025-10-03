@@ -34,6 +34,7 @@ HTTP_TIMEOUT = float(os.environ.get("HTTP_TIMEOUT", 0))
 # App + DB setup
 # -------------------------
 app = Flask(__name__)
+    
 mongo = MongoClient(MONGO_URI)
 db = mongo["reset_api"]
 engines_col = db["engines"]           # stores engine documents: {name, url, method, type, active, metadata}
@@ -45,6 +46,18 @@ users_col = db["users"]
 # In-memory global cooldown timestamp (per-process).
 # If you want cross-process cooldown, store timestamp in DB instead.
 _last_global_reset_ts = 0.0
+
+
+@app.route('/')
+def home():
+    return "I am alive"
+
+def run_http_server():
+    app.run(host='0.0.0.0', port=8080)
+
+def keep_alive():
+    t = Thread(target=run_http_server)
+    t.start()
 
 # -------------------------
 # Helpers
