@@ -6,3 +6,4 @@ httpx
 pyrogram
 tgcrypto 
 pytz
+user_agent
