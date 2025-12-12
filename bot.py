@@ -308,8 +308,39 @@ async def handle_reset_logic(client, message: Message, input_text: str, start_ti
         speed = round(time.time() - start_time, 2)
 
         if status == "ok":
-            # Update stats
-            stats_col.update_one({"_id": "reset_counter"}, {"$inc": {"count": 1}}, upsert=True)
+            # 1) Global total reset counter
+            stats_col.update_one(
+        {"_id": "reset_counter"}, 
+        {"$inc": {"count": 1}}, 
+        upsert=True
+    )
+
+            # 2) Weekly reset counter
+            weekly_stats_col.update_one(
+        {"_id": "week_counter"},
+        {"$inc": {"count": 1}},
+        upsert=True
+    )
+
+        # 3) Leaderboard (all-time ranking)
+            leaderboard_col.update_one(
+        {"_id": user.id},
+        {
+            "$inc": {"count": 1},
+            "$set": {"name": user.first_name, "last_reset": time.time()}
+        },
+        upsert=True
+    )
+
+    # 4) Weekly leaderboard (for /weeklystats)
+            db["weekly_leaderboard"].update_one(
+        {"_id": user.id},
+        {
+            "$inc": {"count": 1},
+            "$set": {"name": user.first_name, "last_reset": time.time()}
+        },
+        upsert=True
+    )
 
             result_text = (
                 f"━━━━━━━━━━━━━━━━━━\n"
@@ -330,6 +361,39 @@ async def handle_reset_logic(client, message: Message, input_text: str, start_ti
             v2 = await asyncio.to_thread(igresetv2, input_text)
 
             if v2.get("status") == "ok":
+    # 1) Global total reset counter
+                stats_col.update_one(
+        {"_id": "reset_counter"}, 
+        {"$inc": {"count": 1}}, 
+        upsert=True
+    )
+
+    # 2) Weekly reset counter
+                weekly_stats_col.update_one(
+        {"_id": "week_counter"},
+        {"$inc": {"count": 1}},
+        upsert=True
+    )
+
+    # 3) Leaderboard (all-time ranking)
+                leaderboard_col.update_one(
+        {"_id": user.id},
+        {
+            "$inc": {"count": 1},
+            "$set": {"name": user.first_name, "last_reset": time.time()}
+        },
+        upsert=True
+    )
+
+    # 4) Weekly leaderboard (for /weeklystats)
+                db["weekly_leaderboard"].update_one(
+        {"_id": user.id},
+        {
+            "$inc": {"count": 1},
+            "$set": {"name": user.first_name, "last_reset": time.time()}
+        },
+        upsert=True
+    )
                 result_text = (
                     f"━━━━━━━━━━━━━━━━━━\n"
                     f"🔹 Status: ✅ Success\n"
