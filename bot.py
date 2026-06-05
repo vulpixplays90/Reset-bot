@@ -231,22 +231,30 @@ def token():
 
 def igresetv1(user: str):
     url = 'https://www.instagram.com/api/v1/web/accounts/account_recovery_send_ajax/'
-    head = {
-        "accept": "*/*",
-        "content-type": "application/x-www-form-urlencoded",
-        "x-csrftoken": token(),
-        "user-agent": generate_user_agent(),
-        "x-ig-www-claim": "0",
-        "origin": "https://www.instagram.com",
-        "referer": "https://www.instagram.com/accounts/password/reset/",
-    }
-    data = {"email_or_username": user}
-
+    
     try:
+        # We need to handle the token safely in case it fails
+        csrf = token()
+        if not csrf:
+            return {"status": "fail", "message": "Failed to fetch CSRF token."}
+            
+        head = {
+            "accept": "*/*",
+            "content-type": "application/x-www-form-urlencoded",
+            "x-csrftoken": csrf,
+            "user-agent": generate_user_agent(),
+            "x-ig-www-claim": "0",
+            "origin": "https://www.instagram.com",
+            "referer": "https://www.instagram.com/accounts/password/reset/",
+        }
+        data = {"email_or_username": user}
+
         res = requests.post(url, headers=head, data=data)
         return res.json()
-    except:
-        return f'Error: {res.text}'
+    except Exception as e:
+        # Always return a dictionary so .get() won't crash
+        error_text = res.text if 'res' in locals() else str(e)
+        return {"status": "fail", "message": f"Exception or non-JSON response: {error_text[:200]}"}
 
 # ---------------- IGRESET V2 (Mobile API) ----------------
 
